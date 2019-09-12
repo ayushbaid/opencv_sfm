@@ -1,0 +1,2 @@
+g++ code/scene_recon.cpp -o output `pkg-config --cflags --libs opencv`
+

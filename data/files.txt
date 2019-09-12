@@ -1,0 +1,3 @@
+lettuce_home/img4.jpg
+lettuce_home/img5.jpg
+lettuce_home/img6.jpg
