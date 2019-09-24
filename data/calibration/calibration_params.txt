@@ -1,0 +1,5 @@
+focal length: [357.5901, 384.8436]
+principal point: [230.8863, 173.6757]
+skew: [0]
+Radial distortion: [0.2276 -0.8738]
+
