@@ -4,21 +4,20 @@ import cv2
 import os
 import glob
 import numpy as np
+import copy
 
 
 def scale_image(inp_image, scale=0.1):
-    width = int(inp_image.shape[1] * 0.1)
-    height = int(inp_image.shape[0] * 0.1)
+    width = int(inp_image.shape[1] * scale)
+    height = int(inp_image.shape[0] * scale)
     dim = (width, height)
     # resize image
     return cv2.resize(inp_image, dim, interpolation=cv2.INTER_AREA)
 
 
 def scale_all_images_in_folder(inp_folder, output_folder, scale=0.1):
-    for f in glob.glob(os.path.join(inp_folder, '*')):
-        print(f)
+    for f in glob.glob(os.path.join(inp_folder, '*.jpg')):
         file_name = f.split('/')[-1]
-        print(file_name)
         inp_image = cv2.imread(f)
 
         scaled_image = scale_image(inp_image, scale)
@@ -95,7 +94,7 @@ def match_sift_double_iter(img1, img2):
                        flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
 
     # cv.drawMatchesKnn expects list of lists as matches.
-    img3 = cv2.drawMatchesKnn(gray_im1, kp1, gray_im2,
+    img_ratio_matches = cv2.drawMatchesKnn(gray_im1, kp1, gray_im2,
                               kp2, matches, None, **draw_params)
 
     pts1 = np.array([pts1])
@@ -105,8 +104,12 @@ def match_sift_double_iter(img1, img2):
     # perform RANSAC
     ransac_e_model, ransac_inliers = cv2.findEssentialMat(
         pts1, pts2, camera_matrix)
-    print(ransac_e_model)
-    ransac_e_model = ransac_e_model[:, 0:3]
+
+    if ransac_e_model is None or ransac_e_model.shape[1]<3:
+        print("E estimation failed")
+        return (None, None, None)
+
+    ransac_e_model = ransac_e_model[0:3,:]
 
     ransac_f_model = np.matmul(
         np.linalg.inv(np.transpose(camera_matrix)),
@@ -114,6 +117,23 @@ def match_sift_double_iter(img1, img2):
                   np.linalg.inv(camera_matrix)
                   )
     )
+
+    # remove the ransac outliers and generate an image
+    ransac_mask = copy.deepcopy(matchesMask)
+    curr_inlier_idx = 0
+    for i in range(len(ransac_mask)):
+        if(ransac_mask[i][0]==1):
+            ransac_mask[i][0] = np.asscalar(ransac_inliers[curr_inlier_idx][0])
+            curr_inlier_idx += 1
+
+    # cv.drawMatchesKnn expects list of lists as matches.
+    draw_params = dict(matchColor=(0, 255, 0),
+                       singlePointColor=(255, 0, 0),
+                       matchesMask=ransac_mask,
+                       flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+    img_ransac_matches = cv2.drawMatchesKnn(gray_im1, kp1, gray_im2,
+                              kp2, matches, None, **draw_params)
+
     # we have the ransac model -> figure out how many points fit in this model\
     # we are considering overall number, not just the points which pass the ratio test
 
@@ -132,7 +152,7 @@ def match_sift_double_iter(img1, img2):
 
         best_point = np.argmin(rel_error)
 
-        if(rel_error[best_point] < 1e-4):
+        if(rel_error[best_point] < 1e-3):
             match_count_new += 1
             matchMask_new.append([1, 0])
         else:
@@ -146,18 +166,18 @@ def match_sift_double_iter(img1, img2):
                            flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
 
     # cv.drawMatchesKnn expects list of lists as matches.
-    img4 = cv2.drawMatchesKnn(gray_im1, kp1, gray_im2,
+    img_retro_matches = cv2.drawMatchesKnn(gray_im1, kp1, gray_im2,
                               kp2, matches_new, None, **draw_params_new)
 
     print("Extra matching val")
     print(match_count_new)
 
-    return img3, img4
+    return img_ratio_matches, img_ransac_matches, img_retro_matches
 
 
 def get_chessboard_points(inp_image):
-    num_pts_x = 8
-    num_pts_y = 6
+    num_pts_x = 4
+    num_pts_y = 4
 
     # termination criteria
     criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
@@ -177,8 +197,6 @@ def get_chessboard_points(inp_image):
         # Draw and display the corners
         img = cv2.drawChessboardCorners(
             inp_image, (num_pts_x, num_pts_y), corners, ret)
-        cv2.imshow('img', img)
-        cv2.waitKey(500)
 
         cv2.imwrite('./temp1.jpg', img)
     else:
@@ -197,10 +215,10 @@ def calibrate_camera(inp_image_folder):
 
 
 def load_camera_matrix():
-    fx = 357.5901
-    fy = 384.8436
-    cx = 230.8863
-    cy = 173.6757
+    fx = 357.5901/10
+    fy = 384.8436/10
+    cx = 230.8863/10
+    cy = 173.6757/10
     return np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
 
 
@@ -209,5 +227,3 @@ def load_image(imName, path='../data/lettuce_home/'):
 
     return img
 
-
-# calibrate_camera('../data/calibration/')
