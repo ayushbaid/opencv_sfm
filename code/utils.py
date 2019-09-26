@@ -154,11 +154,8 @@ def match_sift_double_iter(img1, img2):
 
         if(rel_error[best_point] < 1e-3):
             match_count_new += 1
-            matchMask_new.append([1, 0])
-        else:
-            matchMask_new.append([0, 0])
-        matches_new.append([matches_big[i][best_point],
-                            matches_big[i][best_point]])
+            matches_new.append([matches_big[i][best_point]])
+            matchMask_new.append([1])
 
     draw_params_new = dict(matchColor=(0, 255, 0),
                            singlePointColor=(255, 0, 0),
@@ -215,11 +212,17 @@ def calibrate_camera(inp_image_folder):
 
 
 def load_camera_matrix():
-    fx = 357.5901/10
-    fy = 384.8436/10
-    cx = 230.8863/10
-    cy = 173.6757/10
-    return np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
+    #fx = 357.5901
+    #fy = 384.8436
+    #cx = 230.8863
+    #cy = 173.6757
+    #return np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
+    
+    fx = 614
+    fy = 614
+    cx = 220.3939
+    cy = 385.2142
+    return np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])    
 
 
 def load_image(imName, path='../data/lettuce_home/'):

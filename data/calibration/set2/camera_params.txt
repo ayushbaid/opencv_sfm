@@ -1,0 +1,5 @@
+focal length: 614,614
+cx = 220.3939
+cy = 385.2142
+
+input image sizes: 432,768
