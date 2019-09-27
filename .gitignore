@@ -177,3 +177,6 @@ dmypy.json
 .pyre/
 
 # End of https://www.gitignore.io/api/c++,linux,python
+
+# VS Code
+.vscode/
