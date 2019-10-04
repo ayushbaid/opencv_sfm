@@ -1,0 +1,16 @@
+../data/templeSparseRing/templeSR0001.png
+../data/templeSparseRing/templeSR0002.png
+../data/templeSparseRing/templeSR0003.png
+../data/templeSparseRing/templeSR0004.png
+../data/templeSparseRing/templeSR0005.png
+../data/templeSparseRing/templeSR0006.png
+../data/templeSparseRing/templeSR0007.png
+../data/templeSparseRing/templeSR0008.png
+../data/templeSparseRing/templeSR0009.png
+../data/templeSparseRing/templeSR0010.png
+../data/templeSparseRing/templeSR0011.png
+../data/templeSparseRing/templeSR0012.png
+../data/templeSparseRing/templeSR0013.png
+../data/templeSparseRing/templeSR0014.png
+../data/templeSparseRing/templeSR0015.png
+../data/templeSparseRing/templeSR0016.png
