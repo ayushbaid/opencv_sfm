@@ -59,9 +59,9 @@ def convert_img_to_homogenous(inp_points):
 
 
 def evaluate_fundamental_matrix_old(test_set_im1,
-                                test_set_im2,
-                                fundamental_mat,
-                                threshold=3e-4):
+                                    test_set_im2,
+                                    fundamental_mat,
+                                    threshold=3e-4):
     # test sets are of size Nx3 (homogenous coordinates)
     temp_mat = np.matmul(test_set_im2, fundamental_mat)
     sum_mat = np.abs(np.sum(np.multiply(temp_mat, test_set_im1), axis=1))
@@ -71,16 +71,32 @@ def evaluate_fundamental_matrix_old(test_set_im1,
 
     return inlier_eval, inliear_mask
 
+
 def evaluate_fundamental_matrix(test_set_im1,
                                 test_set_im2,
                                 fundamental_mat,
                                 threshold=1):
     # test sets are of size Nx3 (homogenous coordinates)
-    left_epipolar_lines = np.matmul(test_set_im1, fundamental_mat.T)
-    line_dist_normalizer = np.sqrt(np.sum(left_epipolar_lines[:, :-1]**2, axis=1))
-    distances = np.abs(np.sum(np.multiply(left_epipolar_lines, test_set_im2), axis=1)/line_dist_normalizer)
 
-    inlier_mask = distances<threshold
+    # left side test
+    left_epipolar_lines = np.matmul(test_set_im1, fundamental_mat.T)
+    line_dist_normalizer_left = np.sqrt(
+        np.sum(left_epipolar_lines[:, :-1]**2, axis=1))
+    distances_left = np.abs(
+        np.sum(np.multiply(left_epipolar_lines, test_set_im2), axis=1) /
+        line_dist_normalizer_left)
+    inlier_mask_left = distances_left < threshold
+
+    # right side test
+    right_epipolar_lines = np.matmul(test_set_im2, fundamental_mat)
+    line_dist_normalizer_right = np.sqrt(
+        np.sum(right_epipolar_lines[:, :-1]**2, axis=1))
+    distances_right = np.abs(
+        np.sum(np.multiply(right_epipolar_lines, test_set_im1), axis=1) /
+        line_dist_normalizer_right)
+    inlier_mask_right = distances_right < threshold
+
+    inlier_mask = np.logical_and(inlier_mask_left, inlier_mask_right)
     inlier_eval = np.asscalar(np.sum(inlier_mask, axis=None))
 
     return inlier_eval, inlier_mask
@@ -114,15 +130,13 @@ def custom_ransac(sampling_set_im1,
                                             camera_matrix)
 
         inlier_count_set1, _ = evaluate_fundamental_matrix(
-            convert_img_to_homogenous(sampling_set_im1), 
-            convert_img_to_homogenous(sampling_set_im2), 
-            f_mat_candidate
-        )
+            convert_img_to_homogenous(sampling_set_im1),
+            convert_img_to_homogenous(sampling_set_im2), f_mat_candidate)
 
         inlier_count_set2, inliear_mask_candidate_set2 = evaluate_fundamental_matrix(
             test_set_im1, test_set_im2, f_mat_candidate)
 
-        inlier_count = inlier_count_set1 + 0.3*inlier_count_set2
+        inlier_count = inlier_count_set1 + 1.0 * inlier_count_set2
 
         if (inlier_count > max_inlier_count):
             essential_mat = np.copy(essential_mat_candidate)
@@ -201,7 +215,51 @@ def generate_f_matrix(e_matrix, camera_matrix):
                      np.matmul(e_matrix, np.linalg.inv(camera_matrix)))
 
 
-def match_sift_double_iter(img1, img2):
+def get_matches_and_e(img1, img2):
+    # get the point matches and the essential matrix between two images
+
+    keypoints1, keypoints2, matches = get_feature_points_with_matches(
+        img1, img2)
+
+    keypoints1, keypoints2, matches = get_feature_points_with_matches(
+        img1, img2)
+
+    # perform ratio test and get points
+    pts1_filtered, pts2_filtered, _ = filter_matches_ratio_test(
+        keypoints1, keypoints2, matches, ratio_threshold=0.7)
+
+    # perform ratio test and get points
+    pts1_all, pts2_all, _ = filter_matches_ratio_test(keypoints1,
+                                                      keypoints2,
+                                                      matches,
+                                                      ratio_threshold=1.0)
+
+    ransac_test_pts1 = convert_img_to_homogenous(pts1_all)
+    ransac_test_pts2 = convert_img_to_homogenous(pts2_all)
+
+    if (len(pts1_filtered) < 8):
+        #raise Exception("too few points being detected and passing ratio test")
+        return None
+
+    print("selected points with ratio: ", len(pts1_filtered))
+
+    camera_matrix = load_camera_matrix()
+
+    # custom ransac
+    ransac_e_model_custom, inlier_custom = custom_ransac(
+        pts1_filtered, pts2_filtered, ransac_test_pts1, ransac_test_pts2,
+        camera_matrix)
+
+    pts1_matches = pts1_all[inlier_custom, :]
+    pts2_matches = pts2_all[inlier_custom, :]
+
+    # decompose the essential matrix
+    r1, r2, t = cv2.decomposeEssentialMat(ransac_e_model_custom)
+
+    return pts1_matches, pts2_matches, ransac_e_model_custom, [r1, r2], t
+
+
+def match_sift_double_iter_compare(img1, img2):
     keypoints1, keypoints2, matches = get_feature_points_with_matches(
         img1, img2)
 
@@ -227,9 +285,12 @@ def match_sift_double_iter(img1, img2):
 
     camera_matrix = load_camera_matrix()
     # perform RANSAC
-    ransac_e_model_default, ransac_inlier_original = cv2.findEssentialMat(pts1_filtered,
-                                                     pts2_filtered,
-                                                     camera_matrix)
+    ransac_e_model_default, ransac_inlier_original = cv2.findEssentialMat(
+        pts1_filtered, pts2_filtered, camera_matrix)
+
+    # ransac_e_model_default, ransac_inlier_original = custom_ransac(pts1_all,
+    #                                                  pts2_all, ransac_test_pts1, ransac_test_pts2,
+    #                                                  camera_matrix)
 
     if ransac_e_model_default is None or ransac_e_model_default.shape[1] < 3:
         print("E estimation failed")
@@ -251,35 +312,45 @@ def match_sift_double_iter(img1, img2):
     # get the default image
     default_img = draw_matches(img1_gray, keypoints1, img2_gray, keypoints2,
                                matches, matches_mask_filtered)
-    cv2.putText(default_img,'{}'.format(len(pts1_filtered)),(10,100), cv2.FONT_HERSHEY_SIMPLEX, 2 ,(0,0,255),2,cv2.LINE_AA)
+    cv2.putText(default_img, '{}'.format(len(pts1_filtered)), (10, 100),
+                cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 2, cv2.LINE_AA)
 
     # get the default ransac inlier count
     matches_sub = []
     mask_sub = []
     for i in range(len(matches)):
-        if(matches_mask_filtered[i][0]==1):
+        if (matches_mask_filtered[i][0] == 1):
             matches_sub.append(matches[i])
-            mask_sub.append([1,0])
-    
+            mask_sub.append([1, 0])
+
     ransac_default_img_no_extra = draw_matches(
         img1_gray, keypoints1, img2_gray, keypoints2, matches_sub,
         modify_matches_mask(mask_sub, ransac_inlier_original))
-    cv2.putText(ransac_default_img_no_extra,'{}'.format(np.asscalar(np.sum(ransac_inlier_original))),(10,100), cv2.FONT_HERSHEY_SIMPLEX, 2 ,(0,0,255),2,cv2.LINE_AA)
-
+    cv2.putText(ransac_default_img_no_extra,
+                '{}'.format(np.asscalar(np.sum(ransac_inlier_original))),
+                (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 2,
+                cv2.LINE_AA)
 
     # get the default ransac inlier count
     ransac_default_img = draw_matches(
         img1_gray, keypoints1, img2_gray, keypoints2, matches,
         modify_matches_mask(matches_mask_all, inlier_default))
-    cv2.putText(ransac_default_img,'{}'.format(np.asscalar(np.sum(inlier_default))),(10,100), cv2.FONT_HERSHEY_SIMPLEX, 2 ,(0,0,255),2,cv2.LINE_AA)
+    cv2.putText(ransac_default_img,
+                '{}'.format(np.asscalar(np.sum(inlier_default))), (10, 100),
+                cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 2, cv2.LINE_AA)
 
     # get the default ransac inlier count
     ransac_custom_img = draw_matches(
         img1_gray, keypoints1, img2_gray, keypoints2, matches,
         modify_matches_mask(matches_mask_all, inlier_custom))
-    cv2.putText(ransac_custom_img,'{}'.format(np.asscalar(np.sum(inlier_custom))),(10,100), cv2.FONT_HERSHEY_SIMPLEX, 2 ,(0,0,255),2,cv2.LINE_AA)
+    cv2.putText(ransac_custom_img,
+                '{}'.format(np.asscalar(np.sum(inlier_custom))), (10, 100),
+                cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 2, cv2.LINE_AA)
 
-    return np.concatenate((default_img, ransac_default_img_no_extra, ransac_default_img, ransac_custom_img))
+    return np.concatenate(
+        (np.concatenate((default_img, ransac_default_img_no_extra), axis=1),
+         np.concatenate((ransac_default_img, ransac_custom_img), axis=1)),
+        axis=0)
 
 
 def get_chessboard_points(inp_image):
@@ -334,6 +405,8 @@ def load_camera_matrix():
     cx = 220.3939
     cy = 385.2142
     return np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
+
+    #return np.array([[fy, 0, cy], [0, fx, cx], [0, 0, 1]])
 
 
 def triangulate_points(proj_mat_1, proj_mat_2, im_pts_1, im_pts_2):
