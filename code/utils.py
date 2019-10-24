@@ -75,13 +75,13 @@ def evaluate_fundamental_matrix_old(test_set_im1,
 def evaluate_fundamental_matrix(test_set_im1,
                                 test_set_im2,
                                 fundamental_mat,
-                                threshold=1):
+                                threshold=0.1):
     # test sets are of size Nx3 (homogenous coordinates)
 
     # left side test
     left_epipolar_lines = np.matmul(test_set_im1, fundamental_mat.T)
     line_dist_normalizer_left = np.sqrt(
-        np.sum(left_epipolar_lines[:, :-1]**2, axis=1))
+        np.sum(left_epipolar_lines[:, :-1]**2, axis=1) + 1e-20 )
     distances_left = np.abs(
         np.sum(np.multiply(left_epipolar_lines, test_set_im2), axis=1) /
         line_dist_normalizer_left)
@@ -90,7 +90,7 @@ def evaluate_fundamental_matrix(test_set_im1,
     # right side test
     right_epipolar_lines = np.matmul(test_set_im2, fundamental_mat)
     line_dist_normalizer_right = np.sqrt(
-        np.sum(right_epipolar_lines[:, :-1]**2, axis=1))
+        np.sum(right_epipolar_lines[:, :-1]**2, axis=1) + 1e-20 )
     distances_right = np.abs(
         np.sum(np.multiply(right_epipolar_lines, test_set_im1), axis=1) /
         line_dist_normalizer_right)
@@ -124,7 +124,7 @@ def custom_ransac(sampling_set_im1,
 
         essential_mat_candidate, _ = cv2.findEssentialMat(
             sampling_set_im1[sampling_idx, :],
-            sampling_set_im2[sampling_idx, :], camera_matrix)
+            sampling_set_im2[sampling_idx, :], camera_matrix, threshold=0.1)
 
         f_mat_candidate = generate_f_matrix(essential_mat_candidate,
                                             camera_matrix)
@@ -134,9 +134,9 @@ def custom_ransac(sampling_set_im1,
             convert_img_to_homogenous(sampling_set_im2), f_mat_candidate)
 
         inlier_count_set2, inliear_mask_candidate_set2 = evaluate_fundamental_matrix(
-            test_set_im1, test_set_im2, f_mat_candidate)
+            test_set_im1, test_set_im2, f_mat_candidate, threshold=0.5)
 
-        inlier_count = inlier_count_set1 + 1.0 * inlier_count_set2
+        inlier_count = inlier_count_set1 + 0.25 * inlier_count_set2
 
         if (inlier_count > max_inlier_count):
             essential_mat = np.copy(essential_mat_candidate)
@@ -175,15 +175,22 @@ def filter_matches_ratio_test(keypoints1,
                               ratio_threshold=0.7):
     pts1 = []
     pts2 = []
+    
+    #dist_arr = []
 
     # Need to draw only good matches, so create a mask
     matches_mask = [[0, 0] for i in range(len(matches))]
     # ratio test as per Lowe's paper
     for i, (m, n) in enumerate(matches):
+        #dist_arr.append(m.distance)
         if ratio_threshold >= 0.9999 or m.distance < ratio_threshold * n.distance:
             matches_mask[i] = [1, 0]
             pts2.append(keypoints2[m.trainIdx].pt)
             pts1.append(keypoints1[m.queryIdx].pt)
+            
+    #plt.figure()
+    #plt.hist(np.array(dist_arr))
+    #plt.show()
 
     return np.array(pts1), np.array(pts2), matches_mask
 
@@ -204,8 +211,15 @@ def draw_matches(img1_gray, keypoints1, img2_gray, keypoints2, matches,
 def modify_matches_mask(matches_mask, inliers):
     matches_new = copy.deepcopy(matches_mask)
 
-    for i in range(len(matches_mask)):
-        matches_new[i][0] = int(inliers[i])
+    if len(matches_mask) == len(inliers):
+        for i in range(len(matches_mask)):
+            matches_new[i][0] = int(inliers[i])
+    else:
+        currIdx = 0
+        for i in range(len(matches_mask)):
+            if matches_new[i][0]:
+                matches_new[i][0] = int(inliers[currIdx])
+                currIdx+=1    
 
     return matches_new
 
@@ -232,7 +246,7 @@ def get_matches_and_e(img1, img2):
     pts1_all, pts2_all, _ = filter_matches_ratio_test(keypoints1,
                                                       keypoints2,
                                                       matches,
-                                                      ratio_threshold=1.0)
+                                                      ratio_threshold=0.9)
 
     ransac_test_pts1 = convert_img_to_homogenous(pts1_all)
     ransac_test_pts2 = convert_img_to_homogenous(pts2_all)
@@ -272,7 +286,7 @@ def match_sift_double_iter_compare(img1, img2):
 
     # perform ratio test and get points
     pts1_all, pts2_all, matches_mask_all = filter_matches_ratio_test(
-        keypoints1, keypoints2, matches, ratio_threshold=1.0)
+        keypoints1, keypoints2, matches, ratio_threshold=0.9)
 
     ransac_test_pts1 = convert_img_to_homogenous(pts1_all)
     ransac_test_pts2 = convert_img_to_homogenous(pts2_all)
@@ -286,7 +300,7 @@ def match_sift_double_iter_compare(img1, img2):
     camera_matrix = load_camera_matrix()
     # perform RANSAC
     ransac_e_model_default, ransac_inlier_original = cv2.findEssentialMat(
-        pts1_filtered, pts2_filtered, camera_matrix)
+        pts1_filtered, pts2_filtered, camera_matrix, threshold=0.1)
 
     # ransac_e_model_default, ransac_inlier_original = custom_ransac(pts1_all,
     #                                                  pts2_all, ransac_test_pts1, ransac_test_pts2,
@@ -299,7 +313,7 @@ def match_sift_double_iter_compare(img1, img2):
     ransac_e_model_default = ransac_e_model_default[0:3, :]
     _, inlier_default = evaluate_fundamental_matrix(
         ransac_test_pts1, ransac_test_pts2,
-        generate_f_matrix(ransac_e_model_default, camera_matrix))
+        generate_f_matrix(ransac_e_model_default, camera_matrix), threshold=0.5)
 
     # custom ransac
     ransac_e_model_custom, inlier_custom = custom_ransac(
@@ -400,13 +414,13 @@ def load_camera_matrix():
     #cy = 173.6757
     # return np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
 
-    fx = 614
-    fy = 614
+    fx = 643
+    fy = 644
     cx = 220.3939
     cy = 385.2142
-    return np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
+    #return np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
 
-    #return np.array([[fy, 0, cy], [0, fx, cx], [0, 0, 1]])
+    return np.array([[fy, 0, cy], [0, fx, cx], [0, 0, 1]])
 
 
 def triangulate_points(proj_mat_1, proj_mat_2, im_pts_1, im_pts_2):
